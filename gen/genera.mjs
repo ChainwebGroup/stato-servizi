@@ -22,17 +22,32 @@ if (process.env.STORICO_VUOTO !== '1') {
   } catch {}
 }
 
+const MANUT = /manutenzion|non (è )?disponibil|temporaneamente|maintenance|unavailable|errore|error 5\d\d|\b50[234]\b/i;
+const MANUT_TESTO = /(servizio|sito|portale|applicazione)[^<]{0,40}(temporaneamente )?(non disponibile|in manutenzione|sospeso)|we('| a)re (currently )?(down for )?maintenance/i;
+
 async function prova(s) {
   const t0 = Date.now();
   try {
-    const r = await fetch(s.url, {
+    const r = await fetch(s.check || s.url, {
       method: 'GET',
       redirect: 'manual',
       signal: AbortSignal.timeout(10000),
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; StatoServiziItalia/1.0)', accept: 'text/html' },
+      headers: { 'user-agent': 'Mozilla/5.0 (compatible; StatoServiziItalia/1.0)', accept: 'text/html,application/json' },
     });
+    const ms = Date.now() - t0;
+    const tipo = r.headers.get('content-type') || '';
+    if (r.status === 200 && (s.attendi || tipo.includes('html'))) {
+      let testo = '';
+      try { testo = (await r.text()).slice(0, 300000); } catch {}
+      // il server risponde ma non con quello che deve (es. il ping dell'app IO deve dire "ok")
+      if (s.attendi && !testo.trim().toLowerCase().startsWith(s.attendi)) return { ok: 0, c: r.status, ms, x: 'risposta inattesa' };
+      // pagina di manutenzione o di errore servita come pagina normale
+      const titolo = (testo.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i) || [])[1] || '';
+      if (MANUT.test(titolo) || MANUT_TESTO.test(testo.slice(0, 20000))) return { ok: 1, c: r.status, ms, m: 1 };
+      return { ok: 1, c: r.status, ms };
+    }
     try { await r.body?.cancel(); } catch {}
-    return { ok: r.status < 500 ? 1 : 0, c: r.status, ms: Date.now() - t0 };
+    return { ok: r.status < 500 ? 1 : 0, c: r.status, ms };
   } catch {
     return { ok: 0, c: 0, ms: Date.now() - t0 };
   }
@@ -56,7 +71,47 @@ async function aGruppi(lista, fn, n = 8) {
   return out;
 }
 
+const TRADUZIONI = {
+  'all systems operational': 'Tutti i sistemi operativi',
+  'partial system degradation': 'Degrado parziale dei sistemi',
+  'minor service outage': 'Disservizio minore',
+  'partial system outage': 'Interruzione parziale',
+  'major service outage': 'Disservizio grave',
+  'major system outage': 'Interruzione grave',
+  'service under maintenance': 'Manutenzione in corso',
+};
+const traduci = (t) => TRADUZIONI[(t || '').trim().toLowerCase()] || t;
+
+// avvisi ufficiali pubblicati dai servizi stessi
+async function avviso(s) {
+  const u = s.ufficiale;
+  try {
+    const get = (url) => fetch(url, { signal: AbortSignal.timeout(10000), headers: { accept: 'application/json' } }).then((r) => r.json());
+    if (u.tipo === 'statuspage') {
+      const j = await get(`${u.url}/api/v2/status.json`);
+      const ind = j.status?.indicator || 'none';
+      if (ind === 'none') return { livello: 'ok', testo: traduci(j.status?.description) || 'Tutti i sistemi operativi', link: u.url };
+      return { livello: ind === 'minor' ? 'minore' : 'grave', testo: traduci(j.status?.description) || 'Disservizio in corso', link: u.url };
+    }
+    if (u.tipo === 'stripe') {
+      const j = await get(`${u.url}/current`);
+      const giu = Object.entries(j.statuses || {}).filter(([, v]) => v !== 'up');
+      if (!giu.length) return { livello: 'ok', testo: 'Tutti i sistemi operativi', link: u.url };
+      return { livello: giu.some(([, v]) => v === 'down') ? 'grave' : 'minore', testo: 'Problemi su: ' + giu.map(([k]) => k).join(', '), link: u.url };
+    }
+    if (u.tipo === 'google') {
+      const j = await get('https://www.google.com/appsstatus/dashboard/incidents.json');
+      const aperti = j.filter((i) => !i.end && (i.service_name === u.prodotto || (i.affected_products || []).some((p) => p.title === u.prodotto)));
+      if (!aperti.length) return { livello: 'ok', testo: 'Nessun incidente aperto', link: u.url };
+      const grave = aperti.some((i) => (i.severity || '').toLowerCase() === 'high');
+      return { livello: grave ? 'grave' : 'minore', testo: (aperti[0].external_desc || 'Incidente in corso').replace(/\s+/g, ' ').slice(0, 160), link: u.url };
+    }
+  } catch {}
+  return null;
+}
+
 const ora = Date.now();
+const avvisi = Object.fromEntries(await Promise.all(SERVIZI.filter((s) => s.ufficiale).map(async (s) => [s.id, await avviso(s)])));
 const ris = await aGruppi(SERVIZI, controlla);
 SERVIZI.forEach((s, i) => {
   const a = (storico[s.id] || []).filter((p) => p.t > ora - GIORNO);
@@ -65,12 +120,15 @@ SERVIZI.forEach((s, i) => {
 });
 
 // ---------- stato ----------
-function stato(a) {
+function stato(a, uff) {
   const u = a[a.length - 1];
   let err = 0;
   for (let i = a.length - 1; i >= 0 && !a[i].ok; i--) err++;
   if (err >= 2) return { k: 'giu', t: 'Il sito non risponde' };
+  if (uff?.livello === 'grave') return { k: 'problemi', t: 'Disservizio confermato dal servizio' };
   if (err === 1) return { k: 'dubbio', t: 'Verifica in corso' };
+  if (uff?.livello === 'minore') return { k: 'parziale', t: 'Disservizio parziale segnalato dal servizio' };
+  if (u.m && a.slice(-2).every((p) => p.m)) return { k: 'manut', t: 'Pagina di manutenzione o di errore' };
   const lenti = a.slice(-2).every((p) => p.ms > 5000);
   if (lenti && a.length >= 2) return { k: 'lento', t: 'Risponde lentamente' };
   return { k: 'ok', t: 'Nessun problema rilevato' };
@@ -99,7 +157,7 @@ function serie(a, punti) {
 
 const tutti = SERVIZI.map((s) => {
   const a = storico[s.id];
-  return { s, a, u: a[a.length - 1], st: stato(a), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
+  return { s, a, u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
 // Linea dell'intestazione: tempo medio di risposta di tutti i servizi a ogni giro di verifiche (dati reali).
@@ -139,7 +197,7 @@ function riga(x) {
 
 function home() {
   const lt = lineaTesta();
-  const problemi = tutti.filter((x) => ['giu', 'lento', 'dubbio'].includes(x.st.k));
+  const problemi = tutti.filter((x) => ['giu', 'lento', 'dubbio', 'manut', 'problemi', 'parziale'].includes(x.st.k));
   const caldi = problemi.length ? `<section class="cat" data-cat><h2>Ora sotto osservazione</h2><div class="lista">${problemi.map(riga).join('')}</div></section>` : '';
   const sezioni = caldi + CATEGORIE.map((c) => {
     const items = tutti.filter((x) => x.s.cat === c.id);
@@ -172,10 +230,12 @@ function home() {
 
 function pagina(x) {
   const { s, u, st, v, falliti } = x;
-  const h = host(s.url);
+  const h = host(s.check || s.url);
   let spiega;
   if (st.k === 'giu') spiega = `${esc(h)} non risponde da più verifiche di fila (ultima alle ${oraIt(u.t)}).`;
   else if (st.k === 'dubbio') spiega = `L'ultima verifica di ${esc(h)} alle ${oraIt(u.t)} non ha avuto risposta. Ricontrolliamo tra 5 minuti.`;
+  else if (st.k === 'problemi' || st.k === 'parziale') spiega = `Il servizio stesso segnala un disservizio: «${esc(x.uff.testo)}». Ultima nostra verifica alle ${oraIt(u.t)}.`;
+  else if (st.k === 'manut') spiega = `${esc(h)} risponde, ma con una pagina di manutenzione o di errore (verifica delle ${oraIt(u.t)}).`;
   else if (st.k === 'lento') spiega = `${esc(h)} risponde, ma lentamente: ${sec(u.ms)} all'ultima verifica delle ${oraIt(u.t)}.`;
   else spiega = `Alle ${oraIt(u.t)} ${esc(h)} ha risposto in ${sec(u.ms)}. Un sito che risponde può comunque avere problemi di accesso o nell'app.`;
   const span = ora - x.inizio;
@@ -194,6 +254,8 @@ function pagina(x) {
   <div class="big">
     <div class="big-top">${pill(st)}<span class="muted small">verificato alle ${oraIt(u.t)}</span></div>
     <p>${spiega}</p>
+    <p class="muted small">Cosa controlliamo: ${esc(s.cosa || 'la pagina principale del servizio')}${s.ufficiale ? ', e gli avvisi pubblicati dal servizio stesso' : ''}.</p>
+    ${x.uff ? `<div class="ufficiale ${x.uff.livello}"><strong>Stato ufficiale del servizio</strong><p>${esc(x.uff.testo)} · <a href="${x.uff.link}" rel="nofollow noopener">pagina di stato</a></p></div>` : ''}
   </div>
   <h2>Tempo di risposta${parziale ? ` dalle ${oraIt(x.inizio)}` : ', ultime 24 ore'}</h2>
   <div class="chart"><div class="chart-top muted small">Una verifica ogni 5 minuti · massimo ${sec(Math.max(...x.vg))}${parziale ? ' · lo storico si completa in 24 ore' : ''} · le verifiche fallite salgono a 10 s</div>${linea(x.vg, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>

@@ -159,7 +159,7 @@ export function esc(t) {
 export function host(u) { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return u; } }
 
 export function tono(k) {
-  return k === 'giu' || k === 'problemi' ? 'bad' : k === 'alcune' || k === 'dubbio' || k === 'lento' ? 'warn' : k === 'na' ? 'na' : 'ok';
+  return k === 'giu' || k === 'problemi' ? 'bad' : k === 'alcune' || k === 'dubbio' || k === 'lento' || k === 'manut' || k === 'parziale' ? 'warn' : k === 'na' ? 'na' : 'ok';
 }
 
 // Linea delle segnalazioni (96 quarti d'ora = 24 ore), come i grafici di stato.
@@ -363,7 +363,7 @@ h2{font-size:18px;margin:36px 0 14px;letter-spacing:-.01em}.lead{color:var(--mu)
 .card-mid{display:flex;flex-direction:column;gap:6px}.card .spark{width:100%;height:26px}.card-bot{display:flex;justify-content:space-between;align-items:center;gap:8px}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;padding:3px 9px;border-radius:999px;white-space:nowrap;border:1px solid var(--line);color:var(--mu)}
 .dot{width:7px;height:7px;border-radius:50%;background:currentColor}
-.pill.ok{color:var(--ok);border-color:rgba(52,211,153,.3)}.pill.alcune,.pill.dubbio,.pill.lento{color:var(--warn);border-color:rgba(251,191,36,.35)}
+.pill.ok{color:var(--ok);border-color:rgba(52,211,153,.3)}.pill.alcune,.pill.dubbio,.pill.lento,.pill.manut,.pill.parziale{color:var(--warn);border-color:rgba(251,191,36,.35)}
 .pill.problemi,.pill.giu{color:var(--bad);border-color:rgba(248,113,113,.4)}
 .spark .b{fill:var(--ac)}.spark .b0{fill:#2A3547}
 .btn,.btn-sm{font:inherit;cursor:pointer;border-radius:10px;border:0;background:var(--btn);color:#fff;font-weight:600}
@@ -432,6 +432,7 @@ background-size:24px 24px,120px 120px,120px 120px;
 .picco .p0{stop-color:#8AB4F8;stop-opacity:.6}.picco .p1{stop-color:#8AB4F8;stop-opacity:1}
 .picco.bad .p0{stop-color:#F87171;stop-opacity:.6}.picco.bad .p1{stop-color:#F87171;stop-opacity:1}
 .nota-linea{margin:14px 0 0;color:var(--mu);font-size:12.5px}
+.ufficiale{margin-top:14px;padding:12px 14px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.04)}.ufficiale.grave{border-color:rgba(248,113,113,.45)}.ufficiale.minore{border-color:rgba(251,191,36,.45)}.ufficiale p{margin:4px 0 0;color:var(--mu);font-size:14px}
 `;
 
 const JS = `
