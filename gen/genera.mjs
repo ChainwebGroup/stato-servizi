@@ -205,10 +205,29 @@ function stato(a, uff) {
 // tempo di risposta: finestra di 24 ore, o dalla prima verifica se lo storico è più corto.
 // Una verifica fallita vale 10 s. Con più verifiche che punti si tiene il valore peggiore per tratto.
 function inizioDi(a) { return Math.max(ora - GIORNO, a[0].t); }
-function serie(a, punti) {
+// Normalità per servizio e correzione per il punto di misura:
+// se in un giro TUTTI i servizi sono più lenti del solito, la causa è la nostra rete, non i servizi.
+const mediana = (v) => { const o = [...v].sort((x, y) => x - y); return o.length ? o[Math.floor(o.length / 2)] : 0; };
+const normale = {};
+for (const s of SERVIZI) normale[s.id] = Math.max(1, mediana((storico[s.id] || []).filter((p) => p.ok).map((p) => p.ms)));
+const fattoreGiro = {};
+{
+  const perGiro = new Map();
+  for (const s of SERVIZI) for (const p of storico[s.id] || []) if (p.ok) { if (!perGiro.has(p.t)) perGiro.set(p.t, []); perGiro.get(p.t).push(p.ms / normale[s.id]); }
+  for (const [t, r] of perGiro) fattoreGiro[t] = Math.max(1, mediana(r));
+}
+// Scarto: quanto il servizio è più lento della sua normalità (0 = come al solito). Mancata risposta = 10 s.
+function scarto(p, id) {
+  if (!p.ok) return 10000;
+  const ms = p.ms / (fattoreGiro[p.t] || 1);
+  const soglia = Math.max(normale[id] * 1.6, normale[id] + 500);
+  return Math.max(0, ms - soglia);
+}
+
+function serie(a, punti, id) {
   const inizio = inizioDi(a);
   const pts = a.filter((p) => p.t >= inizio);
-  const val = (p) => (p.ok ? p.ms : 10000);
+  const val = id ? (p) => scarto(p, id) : (p) => (p.ok ? p.ms : 10000);
   if (pts.length <= punti) {
     const v = pts.map(val);
     return v.length === 1 ? [v[0], v[0]] : v;
@@ -225,7 +244,7 @@ function serie(a, punti) {
 
 const tutti = SERVIZI.map((s) => {
   const a = storico[s.id];
-  return { s, a, srv: server[SERVIZI.indexOf(s)], u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
+  return { s, a, srv: server[SERVIZI.indexOf(s)], u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96, s.id), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
 // Linea dell'intestazione: tempo medio di risposta di tutti i servizi a ogni giro di verifiche (dati reali).
@@ -259,7 +278,7 @@ function riga(x) {
   const t = tono(x.st.k);
   const nota = t === 'ok' ? '' : `<small class="${t}">${esc(x.st.t)}</small>`;
   return `<a class="riga" href="/s/${x.s.id}/" data-nome="${esc((x.s.nome + ' ' + host(x.s.url)).toLowerCase())}">
-  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 4000)}
+  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 3000)}
 </a>`;
 }
 
@@ -282,7 +301,7 @@ function home() {
     <h1>Cosa non funziona oggi in Italia?</h1>
     <p class="lead">SPID, INPS, pagoPA, PEC, banche, pagamenti e app: ogni 5 minuti verifichiamo se rispondono e quanto ci mettono.</p>
     <div class="numeri"><div><b>${SERVIZI.length}</b><span>servizi controllati</span></div><i></i><div><b>5 min</b><span>tra una verifica e l'altra</span></div></div>
-    <p class="nota-linea">La linea è il tempo medio di risposta dei ${SERVIZI.length} servizi ${lt.inizio > ora - GIORNO + QUARTO ? `dalle ${oraIt(lt.inizio)}` : 'nelle ultime 24 ore'}: adesso ${sec(lt.media || 0)}.</p>
+    <p class="nota-linea">La linea è il tempo medio di risposta dei ${SERVIZI.length} servizi ${lt.inizio > ora - GIORNO + QUARTO ? `dalle ${oraIt(lt.inizio)}` : 'nelle ultime 24 ore'}: adesso ${sec(lt.media || 0)}. Nelle righe dei servizi la linea resta piatta finché il servizio risponde come al solito e sale solo quando rallenta o non risponde.</p>
   </div>
   <div class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="cerca" type="search" placeholder="Cerca un servizio: INPS, SPID, Aruba PEC…" autocomplete="off"></div>
   <p class="muted small">Ultimo aggiornamento alle ${oraIt(ora)}</p>
@@ -411,6 +430,8 @@ await scrivi('index.html', home());
 for (const x of tutti) await scrivi(`s/${x.s.id}/index.html`, pagina(x));
 await scrivi('attacco-hacker-oggi/index.html', paginaAttacco());
 await scrivi('storico.json', JSON.stringify(storico));
+// chiave IndexNow (pubblica per definizione: Bing e Yandex la leggono dal sito)
+await scrivi('174342f72c81d9ae7c92732aa6dab3b7.txt', '174342f72c81d9ae7c92732aa6dab3b7');
 await scrivi('robots.txt', `User-agent: *\nAllow: /\nSitemap: ${BASE}/sitemap.xml\n`);
 await scrivi('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['/', '/attacco-hacker-oggi/', ...SERVIZI.map((s) => `/s/${s.id}/`)].map((p) => `<url><loc>${BASE}${p}</loc><changefreq>hourly</changefreq></url>`).join('')}</urlset>`);
 await scrivi('_headers', `/*\n  Cache-Control: public, max-age=60\n/storico.json\n  Cache-Control: no-store\n`);
