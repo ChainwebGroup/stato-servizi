@@ -168,7 +168,8 @@ export function linea(v, t, w = 300, h = 60, minMax = 6) {
   const n = v.length;
   const pts = v.map((y, i) => [(i / (n - 1)) * w, h - 3 - (y / max) * (h - 8)]);
   const d = pts.map((q, i) => (i ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' ');
-  return `<svg class="linea ${t}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><path class="area" d="${d} L${w} ${h} L0 ${h} Z"/><path class="tratto" d="${d}" vector-effect="non-scaling-stroke"/></svg>`;
+  const gid = 'g' + Math.random().toString(36).slice(2, 8);
+  return `<svg class="linea ${t}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s0"/><stop offset="1" class="s1"/></linearGradient></defs><path class="area" fill="url(#${gid})" d="${d} L${w} ${h} L0 ${h} Z"/><path class="tratto" d="${d}" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 export function icona(t) {
@@ -338,9 +339,13 @@ h2{font-size:18px;margin:36px 0 14px;letter-spacing:-.01em}.lead{color:var(--mu)
 .ic{width:24px;height:24px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .ic.ok{color:var(--ok)}.ic.warn{color:var(--warn)}.ic.bad{color:var(--bad)}.ic.na{color:var(--mu)}
 .linea{display:block;width:100%;height:46px}.linea .tratto{fill:none;stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
-.linea.ok .tratto,.linea.na .tratto{stroke:var(--ac)}.linea.ok .area,.linea.na .area{fill:rgba(138,180,248,.10)}
-.linea.warn .tratto{stroke:var(--warn)}.linea.warn .area{fill:rgba(251,191,36,.12)}
-.linea.bad .tratto{stroke:var(--bad)}.linea.bad .area{fill:rgba(248,113,113,.14)}
+.linea.ok .tratto,.linea.na .tratto{stroke:var(--ac)}
+.linea.warn .tratto{stroke:var(--warn)}
+.linea.bad .tratto{stroke:var(--bad)}
+.linea .s1{stop-color:#000;stop-opacity:0}
+.linea.ok .s0,.linea.na .s0{stop-color:#8AB4F8;stop-opacity:.22}
+.linea.warn .s0{stop-color:#FBBF24;stop-opacity:.25}
+.linea.bad .s0{stop-color:#F87171;stop-opacity:.3}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:flex;flex-direction:column;gap:12px}
 .card-top{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.nome{color:var(--tx);font-weight:600}
 .card-mid{display:flex;flex-direction:column;gap:6px}.card .spark{width:100%;height:26px}.card-bot{display:flex;justify-content:space-between;align-items:center;gap:8px}

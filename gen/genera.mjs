@@ -101,7 +101,7 @@ function riga(x) {
   const t = tono(x.st.k);
   const nota = t === 'ok' ? '' : `<small class="${t}">${esc(x.st.t)}</small>`;
   return `<a class="riga" href="/s/${x.s.id}/" data-nome="${esc((x.s.nome + ' ' + host(x.s.url)).toLowerCase())}">
-  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 3000)}
+  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 6000)}
 </a>`;
 }
 
