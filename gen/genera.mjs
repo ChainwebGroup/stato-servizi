@@ -102,6 +102,32 @@ const tutti = SERVIZI.map((s) => {
   return { s, a, u: a[a.length - 1], st: stato(a), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
+// Linea dell'intestazione: tempo medio di risposta di tutti i servizi a ogni giro di verifiche (dati reali).
+function lineaTesta() {
+  const giri = new Map();
+  for (const x of tutti) for (const p of x.a) {
+    if (p.t < ora - GIORNO) continue;
+    const o = giri.get(p.t) || { s: 0, n: 0, f: 0 };
+    if (p.ok) { o.s += p.ms; o.n++; } else o.f++;
+    giri.set(p.t, o);
+  }
+  let pts = [...giri.entries()].sort((a, b) => a[0] - b[0]).map(([t, o]) => ({ t, v: o.n ? o.s / o.n : 10000, f: o.f }));
+  if (!pts.length) return { d: '', inizio: ora, tono: 'ok' };
+  const inizio = pts[0].t;
+  if (pts.length > 96) {
+    const span = Math.max(ora - inizio, 1), v = new Array(96).fill(null);
+    for (const p of pts) { const q = Math.min(95, Math.floor(((p.t - inizio) / span) * 96)); v[q] = v[q] == null || p.v > v[q].v ? p : v[q]; }
+    pts = v.filter(Boolean);
+  }
+  if (pts.length === 1) pts = [pts[0], pts[0]];
+  // tempi normali (fino a 3 s) restano nella fascia bassa, sotto i testi; solo un rallentamento vero sale verso l'alto
+  const X = (i) => -10 + (i / (pts.length - 1)) * 1220;
+  const Y = (v) => (v <= 3000 ? 390 - (v / 3000) * 38 : 352 - Math.min((v - 3000) / 7000, 1) * 312);
+  const d = pts.map((p, i) => (i ? 'L' : 'M') + X(i).toFixed(1) + ' ' + Y(p.v).toFixed(1)).join(' ');
+  const ultimo = pts[pts.length - 1];
+  return { d, inizio, tono: ultimo.f >= 3 ? 'bad' : 'ok', media: ultimo.v };
+}
+
 // ---------- pagine ----------
 function riga(x) {
   const t = tono(x.st.k);
@@ -112,6 +138,7 @@ function riga(x) {
 }
 
 function home() {
+  const lt = lineaTesta();
   const problemi = tutti.filter((x) => ['giu', 'lento', 'dubbio'].includes(x.st.k));
   const caldi = problemi.length ? `<section class="cat" data-cat><h2>Ora sotto osservazione</h2><div class="lista">${problemi.map(riga).join('')}</div></section>` : '';
   const sezioni = caldi + CATEGORIE.map((c) => {
@@ -125,10 +152,11 @@ function home() {
   const corpo = `
 <section class="hero wrap">
   <div class="hero-top">
-    <svg class="picco" viewBox="0 0 1200 400" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="gp" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8AB4F8" stop-opacity=".55"/><stop offset=".78" stop-color="#8AB4F8"/><stop offset=".9" stop-color="#F87171"/><stop offset="1" stop-color="#F87171"/></linearGradient></defs><path d="M-10 352 L40 372 L120 344 L205 360 L290 336 L380 364 L470 342 L560 356 L650 346 L740 352 L830 349 L905 351 L980 318 L1040 250 L1080 110 L1120 40 L1210 -30" pathLength="1"/></svg>
+    <svg class="picco ${lt.tono}" viewBox="0 0 1200 400" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="gp" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" class="p0"/><stop offset="1" class="p1"/></linearGradient></defs><path d="${lt.d}" pathLength="1"/></svg>
     <h1>Cosa non funziona oggi in Italia?</h1>
     <p class="lead">SPID, INPS, pagoPA, PEC, banche, pagamenti e app: ogni 5 minuti verifichiamo se rispondono e quanto ci mettono.</p>
     <div class="numeri"><div><b>${SERVIZI.length}</b><span>servizi controllati</span></div><i></i><div><b>5 min</b><span>tra una verifica e l'altra</span></div></div>
+    <p class="nota-linea">La linea è il tempo medio di risposta dei ${SERVIZI.length} servizi ${lt.inizio > ora - GIORNO + QUARTO ? `dalle ${oraIt(lt.inizio)}` : 'nelle ultime 24 ore'}: adesso ${sec(lt.media || 0)}.</p>
   </div>
   <div class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="cerca" type="search" placeholder="Cerca un servizio: INPS, SPID, Aruba PEC…" autocomplete="off"></div>
   <p class="muted small">Ultimo aggiornamento alle ${oraIt(ora)}</p>

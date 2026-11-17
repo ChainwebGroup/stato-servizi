@@ -418,7 +418,7 @@ background-size:24px 24px,120px 120px,120px 120px;
 @media (prefers-reduced-motion:reduce){.ecg-run{animation:none;stroke-dasharray:none;opacity:.35}}
 @media (max-width:520px){.hero{padding-top:84px!important}.ecg{left:0;width:100%;top:6px;height:76px}}
 
-.hero-top{position:relative;padding-bottom:96px}
+.hero-top{position:relative;padding-bottom:110px}
 .picco{position:absolute;left:calc(50% - 50vw);width:100vw;top:-140px;height:calc(100% + 140px);z-index:-1;pointer-events:none;overflow:visible}
 .picco path{fill:none;stroke:url(#gp);stroke-width:3;stroke-linejoin:round;stroke-linecap:round;vector-effect:non-scaling-stroke;filter:drop-shadow(0 0 6px rgba(138,180,248,.55)) drop-shadow(0 0 16px rgba(248,113,113,.35));stroke-dasharray:1;stroke-dashoffset:1;animation:disegna 2.2s cubic-bezier(.4,0,.2,1) .2s forwards}
 @keyframes disegna{to{stroke-dashoffset:0}}
@@ -427,8 +427,11 @@ background-size:24px 24px,120px 120px,120px 120px;
 .numeri div{display:flex;flex-direction:column}.numeri b{font-size:32px;line-height:1.1;letter-spacing:-.01em}.numeri span{color:var(--mu);font-size:14px}
 .numeri i{width:1px;align-self:stretch;background:rgba(255,255,255,.35)}
 .hero .ecg{display:none}
-@media (max-width:520px){.hero-top{padding-bottom:84px}.numeri{gap:20px}.numeri b{font-size:28px}.picco{top:-150px;height:calc(100% + 150px)}}
+@media (max-width:520px){.hero-top{padding-bottom:100px}.numeri{gap:20px}.numeri b{font-size:28px}.picco{top:-150px;height:calc(100% + 150px)}}
 .linea .base{fill:none;stroke:rgba(255,255,255,.14);stroke-width:1;stroke-dasharray:3 4}
+.picco .p0{stop-color:#8AB4F8;stop-opacity:.6}.picco .p1{stop-color:#8AB4F8;stop-opacity:1}
+.picco.bad .p0{stop-color:#F87171;stop-opacity:.6}.picco.bad .p1{stop-color:#F87171;stop-opacity:1}
+.nota-linea{margin:14px 0 0;color:var(--mu);font-size:12.5px}
 `;
 
 const JS = `
