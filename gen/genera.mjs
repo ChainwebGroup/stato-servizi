@@ -147,7 +147,13 @@ async function sonda(nome) {
   r.dns = 1;
   ips = [...new Set(ips)].slice(0, 6);
   r.ip = ips;
-  const tempi = await Promise.all(ips.map((ip) => tcp(ip)));
+  let tempi = await Promise.all(ips.map((ip) => tcp(ip)));
+  // alcuni firewall rifiutano connessioni ravvicinate: una seconda prova dopo 2 s
+  if (tempi.some((x) => x < 0)) {
+    await new Promise((f) => setTimeout(f, 2000));
+    const di2 = await Promise.all(ips.map((ip, k) => (tempi[k] >= 0 ? tempi[k] : tcp(ip))));
+    tempi = di2;
+  }
   r.ipok = tempi.filter((x) => x >= 0).length;
   const buoni = tempi.filter((x) => x >= 0);
   r.ms = buoni.length ? Math.min(...buoni) : null;
@@ -170,7 +176,9 @@ const ris = await aGruppi(SERVIZI, controlla);
 const server = await aGruppi(SERVIZI, (s) => Promise.all(hostDi(s).map(sonda)), 6);
 SERVIZI.forEach((s, i) => {
   const a = (storico[s.id] || []).filter((p) => p.t > ora - GIORNO);
-  const pb = server[i].map(problemaServer);
+  // se il sito su questo stesso server ha risposto in questo giro, il server non può essere «giù»
+  const hv = ris[i].ok ? hostDi({ url: s.check || s.url })[0] : null;
+  const pb = server[i].map((r) => (r.h === hv && problemaServer(r) === 'giu' ? '' : problemaServer(r)));
   a.push({ t: ora, ...ris[i], sg: pb.filter((x) => x === 'giu').length, sp: pb.filter((x) => x === 'parziale').length, sc: pb.filter((x) => x === 'cert').length });
   storico[s.id] = a;
 });
@@ -288,10 +296,11 @@ function home() {
   }));
 }
 
-function righeServer(lista) {
+function righeServer(lista, hv) {
   return lista.map((r) => {
-    const pb = problemaServer(r);
-    const ip = !r.dns ? 'Nome non trovato (DNS)' : !r.ipok ? `Nessuno dei ${r.ip.length} IP risponde` : r.ipok < r.ip.length ? `${r.ipok} di ${r.ip.length} IP rispondono` : r.ip.length === 1 ? '1 IP, risponde' : `${r.ip.length} IP, tutti rispondono`;
+    const ver = r.h === hv && r.dns && !r.ipok;
+    const pb = ver ? '' : problemaServer(r);
+    const ip = !r.dns ? 'Nome non trovato (DNS)' : ver ? 'Connessione diretta rifiutata, ma il sito risponde' : !r.ipok ? `Nessuno dei ${r.ip.length} IP risponde` : r.ipok < r.ip.length ? `${r.ipok} di ${r.ip.length} IP rispondono` : r.ip.length === 1 ? '1 IP, risponde' : `${r.ip.length} IP, tutti rispondono`;
     const elenco = r.ip.length ? `<br><span class="muted small">${r.ip.slice(0, 3).join(', ')}${r.ip.length > 3 ? '…' : ''}</span>` : '';
     const cert = !r.cert ? '—' : r.cert.valido ? `valido, scade tra ${r.cert.giorni} giorni` : `non valido${r.cert.motivo ? ` (${esc(r.cert.motivo)})` : ''}`;
     return `<tr class="${pb ? 'ko' : ''}"><td><code>${esc(r.h)}</code></td><td data-l="Indirizzi IP">${ip}${elenco}</td><td data-l="Connessione">${r.ms != null ? r.ms + ' ms' : '—'}</td><td data-l="Certificato">${cert}</td></tr>`;
@@ -330,7 +339,7 @@ function pagina(x) {
   </div>
   <h2>Server controllati</h2>
   <p class="muted small">Per ogni server del servizio: se il nome si risolve (DNS), quanti indirizzi IP rispondono sulla porta 443, il tempo di connessione e il certificato di sicurezza.</p>
-  <div class="tab"><table class="srv"><thead><tr><th>Server</th><th>Indirizzi IP</th><th>Connessione</th><th>Certificato</th></tr></thead><tbody>${righeServer(x.srv)}</tbody></table></div>
+  <div class="tab"><table class="srv"><thead><tr><th>Server</th><th>Indirizzi IP</th><th>Connessione</th><th>Certificato</th></tr></thead><tbody>${righeServer(x.srv, u.ok ? hostDi({ url: s.check || s.url })[0] : null)}</tbody></table></div>
   <h2>Tempo di risposta${parziale ? ` dalle ${oraIt(x.inizio)}` : ', ultime 24 ore'}</h2>
   <div class="chart"><div class="chart-top muted small">Una verifica ogni 5 minuti · massimo ${sec(Math.max(...x.vg))}${parziale ? ' · lo storico si completa in 24 ore' : ''} · le verifiche fallite salgono a 10 s</div>${linea(x.vg, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>
   <h2>Verifiche non riuscite, ultime 24 ore</h2>
