@@ -1,32 +1,48 @@
 name: verifiche
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch:
     inputs:
       azzera:
         description: 'Ricomincia lo storico da zero'
         default: 'no'
+permissions:
+  actions: write
+  contents: read
 concurrency:
   group: verifiche
   cancel-in-progress: false
 jobs:
   verifica-e-pubblica:
     runs-on: ubuntu-latest
-    timeout-minutes: 6
+    timeout-minutes: 355
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-      - name: Verifiche e pagine
-        run: node gen/genera.mjs out
+      - name: Verifiche ogni 5 minuti per quasi 6 ore
         env:
           SITO: https://stato-servizi.pages.dev
           BASE_URL: https://stato-servizi.pages.dev
-          STORICO_VUOTO: ${{ github.event.inputs.azzera == 'si' && '1' || '0' }}
-      - name: Pubblica su Cloudflare Pages
-        run: npx -y wrangler@3 pages deploy out --project-name stato-servizi --branch main --commit-dirty=true
-        env:
+          AZZERA: ${{ github.event.inputs.azzera == 'si' && '1' || '0' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          fine=$(( $(date +%s) + 5*3600 + 40*60 ))
+          giro=0
+          while [ "$(date +%s)" -lt "$fine" ]; do
+            t0=$(date +%s)
+            if [ "$giro" -eq 0 ]; then export STORICO_VUOTO="$AZZERA"; else export STORICO_VUOTO=0; fi
+            node gen/genera.mjs out || echo "verifica non riuscita"
+            npx -y wrangler@3 pages deploy out --project-name stato-servizi --branch main --commit-dirty=true > deploy.log 2>&1 || { echo "pubblicazione non riuscita"; tail -5 deploy.log; }
+            giro=$((giro+1))
+            resto=$(( 300 - ($(date +%s) - t0) ))
+            if [ "$resto" -gt 0 ]; then sleep "$resto"; fi
+          done
+      - name: Riparti
+        if: always()
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh workflow run verifiche -R "${{ github.repository }}"
