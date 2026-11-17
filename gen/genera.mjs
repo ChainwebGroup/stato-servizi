@@ -22,7 +22,7 @@ if (process.env.STORICO_VUOTO !== '1') {
   } catch {}
 }
 
-async function controlla(s) {
+async function prova(s) {
   const t0 = Date.now();
   try {
     const r = await fetch(s.url, {
@@ -38,8 +38,26 @@ async function controlla(s) {
   }
 }
 
+// una seconda prova dopo 3 s prima di segnare un errore
+async function controlla(s) {
+  const r = await prova(s);
+  if (r.ok) return r;
+  await new Promise((f) => setTimeout(f, 3000));
+  return prova(s);
+}
+
+// al massimo 8 verifiche insieme: tutte in parallelo si accodano e falsano i tempi
+async function aGruppi(lista, fn, n = 8) {
+  const out = new Array(lista.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: n }, async () => {
+    while (i < lista.length) { const k = i++; out[k] = await fn(lista[k]); }
+  }));
+  return out;
+}
+
 const ora = Date.now();
-const ris = await Promise.all(SERVIZI.map(controlla));
+const ris = await aGruppi(SERVIZI, controlla);
 SERVIZI.forEach((s, i) => {
   const a = (storico[s.id] || []).filter((p) => p.t > ora - GIORNO);
   a.push({ t: ora, ...ris[i] });

@@ -22,7 +22,6 @@ export const SERVIZI = [
   { id: 'namirial-id', nome: 'Namirial ID (SPID)', cat: 'id', url: 'https://idp.namirialtsp.com/idp/' },
   { id: 'sielte-id', nome: 'Sielte ID (SPID)', cat: 'id', url: 'https://identity.sieltecloud.it/' },
   { id: 'lepida-id', nome: 'Lepida ID (SPID)', cat: 'id', url: 'https://id.lepida.it/' },
-  { id: 'tim-id', nome: 'TIM id (SPID)', cat: 'id', url: 'https://login.id.tim.it/affwebservices/public/saml2sso' },
   { id: 'spiditalia', nome: 'SpidItalia Register.it (SPID)', cat: 'id', url: 'https://spid.register.it/' },
   { id: 'intesi-id', nome: 'Intesi Group ID (SPID)', cat: 'id', url: 'https://spid.intesigroup.com/' },
   { id: 'infocamere-id', nome: 'InfoCamere ID (SPID)', cat: 'id', url: 'https://loginspid.infocamere.it/' },

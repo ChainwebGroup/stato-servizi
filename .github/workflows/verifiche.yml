@@ -3,6 +3,10 @@ on:
   schedule:
     - cron: '*/5 * * * *'
   workflow_dispatch:
+    inputs:
+      azzera:
+        description: 'Ricomincia lo storico da zero'
+        default: 'no'
 concurrency:
   group: verifiche
   cancel-in-progress: false
@@ -20,6 +24,7 @@ jobs:
         env:
           SITO: https://stato-servizi.pages.dev
           BASE_URL: https://stato-servizi.pages.dev
+          STORICO_VUOTO: ${{ github.event.inputs.azzera == 'si' && '1' || '0' }}
       - name: Pubblica su Cloudflare Pages
         run: npx -y wrangler@3 pages deploy out --project-name stato-servizi --branch main --commit-dirty=true
         env:
