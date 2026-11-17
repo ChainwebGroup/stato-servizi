@@ -118,9 +118,12 @@ function home() {
     : `<div class="alert calm">Tutti i ${SERVIZI.length} servizi controllati rispondono.</div>`;
   const corpo = `
 <section class="hero wrap">
-  <svg class="ecg" viewBox="0 0 1200 220" preserveAspectRatio="none" aria-hidden="true"><path class="ecg-base" d="M0 150 H430 L462 150 L486 84 L514 200 L544 36 L572 172 L596 150 H760 L780 150 L792 124 L806 168 L818 150 H1200"/><path class="ecg-run" d="M0 150 H430 L462 150 L486 84 L514 200 L544 36 L572 172 L596 150 H760 L780 150 L792 124 L806 168 L818 150 H1200"/></svg>
-  <h1>Cosa non funziona oggi in Italia?</h1>
-  <p class="lead">SPID, INPS, pagoPA, PEC, banche, operatori e app: ogni 5 minuti verifichiamo se rispondono e quanto ci mettono.</p>
+  <div class="hero-top">
+    <svg class="picco" viewBox="0 0 1200 400" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="gp" x1="0" y1="0" x2="1200" y2="0" gradientUnits="userSpaceOnUse"><stop offset="0" stop-color="#8AB4F8" stop-opacity=".55"/><stop offset=".78" stop-color="#8AB4F8"/><stop offset=".9" stop-color="#F87171"/><stop offset="1" stop-color="#F87171"/></linearGradient></defs><path d="M-10 352 L40 372 L120 344 L205 360 L290 336 L380 364 L470 342 L560 356 L650 346 L740 352 L830 349 L905 351 L980 318 L1040 250 L1080 110 L1120 40 L1210 -30" pathLength="1"/></svg>
+    <h1>Cosa non funziona oggi in Italia?</h1>
+    <p class="lead">SPID, INPS, pagoPA, PEC, banche, pagamenti e app: ogni 5 minuti verifichiamo se rispondono e quanto ci mettono.</p>
+    <div class="numeri"><div><b>${SERVIZI.length}</b><span>servizi controllati</span></div><i></i><div><b>5 min</b><span>tra una verifica e l'altra</span></div></div>
+  </div>
   <div class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="cerca" type="search" placeholder="Cerca un servizio: INPS, SPID, Aruba PEC…" autocomplete="off"></div>
   <p class="muted small">Ultimo aggiornamento alle ${oraIt(ora)}</p>
   ${strip}
