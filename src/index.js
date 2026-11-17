@@ -164,12 +164,24 @@ export function tono(k) {
 
 // Linea delle segnalazioni (96 quarti d'ora = 24 ore), come i grafici di stato.
 export function linea(v, t, w = 300, h = 60, minMax = 6) {
-  const max = Math.max(...v, minMax);
+  // I valori null sono periodi senza dati: lì la linea non si disegna (resta solo una base tratteggiata).
+  const num = v.filter((x) => x != null);
+  const max = Math.max(...num, minMax);
   const n = v.length;
-  const pts = v.map((y, i) => [(i / (n - 1)) * w, h - 3 - (y / max) * (h - 8)]);
-  const d = pts.map((q, i) => (i ? 'L' : 'M') + q[0].toFixed(1) + ' ' + q[1].toFixed(1)).join(' ');
+  const X = (i) => (i / (n - 1)) * w;
+  const Y = (y) => h - 3 - (y / max) * (h - 8);
+  const segs = [];
+  let cur = [];
+  v.forEach((y, i) => {
+    if (y == null) { if (cur.length) segs.push(cur); cur = []; } else cur.push([X(i), Y(y)]);
+  });
+  if (cur.length) segs.push(cur);
+  const f = (q) => q[0].toFixed(1) + ' ' + q[1].toFixed(1);
+  const pts = segs.map((s) => (s.length === 1 ? [[Math.max(0, s[0][0] - 3), s[0][1]], s[0]] : s));
+  const d = pts.map((s) => s.map((q, i) => (i ? 'L' : 'M') + f(q)).join(' ')).join(' ');
+  const area = pts.map((s) => s.map((q, i) => (i ? 'L' : 'M') + f(q)).join(' ') + ` L${s[s.length - 1][0].toFixed(1)} ${h} L${s[0][0].toFixed(1)} ${h} Z`).join(' ');
   const gid = 'g' + Math.random().toString(36).slice(2, 8);
-  return `<svg class="linea ${t}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s0"/><stop offset="1" class="s1"/></linearGradient></defs><path class="area" fill="url(#${gid})" d="${d} L${w} ${h} L0 ${h} Z"/><path class="tratto" d="${d}" vector-effect="non-scaling-stroke"/></svg>`;
+  return `<svg class="linea ${t}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="${gid}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" class="s0"/><stop offset="1" class="s1"/></linearGradient></defs><path class="base" d="M0 ${h - 1.5} H${w}" vector-effect="non-scaling-stroke"/>${d ? `<path class="area" fill="url(#${gid})" d="${area}"/><path class="tratto" d="${d}" vector-effect="non-scaling-stroke"/>` : ''}</svg>`;
 }
 
 export function icona(t) {
@@ -416,6 +428,7 @@ background-size:24px 24px,120px 120px,120px 120px;
 .numeri i{width:1px;align-self:stretch;background:rgba(255,255,255,.35)}
 .hero .ecg{display:none}
 @media (max-width:520px){.hero-top{padding-bottom:84px}.numeri{gap:20px}.numeri b{font-size:28px}.picco{top:-150px;height:calc(100% + 150px)}}
+.linea .base{fill:none;stroke:rgba(255,255,255,.14);stroke-width:1;stroke-dasharray:3 4}
 `;
 
 const JS = `

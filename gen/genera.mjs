@@ -76,24 +76,30 @@ function stato(a) {
   return { k: 'ok', t: 'Nessun problema rilevato' };
 }
 
-// tempo di risposta per quarto d'ora (96 punti); una verifica fallita vale 10 s
-function serie(a) {
-  const v = new Array(96).fill(null);
-  const da = ora - GIORNO;
-  for (const p of a) {
-    const q = Math.min(95, Math.floor((p.t - da) / QUARTO));
-    if (q < 0) continue;
-    const val = p.ok ? p.ms : 10000;
-    v[q] = v[q] == null ? val : Math.max(v[q], val);
+// tempo di risposta: finestra di 24 ore, o dalla prima verifica se lo storico è più corto.
+// Una verifica fallita vale 10 s. Con più verifiche che punti si tiene il valore peggiore per tratto.
+function inizioDi(a) { return Math.max(ora - GIORNO, a[0].t); }
+function serie(a, punti) {
+  const inizio = inizioDi(a);
+  const pts = a.filter((p) => p.t >= inizio);
+  const val = (p) => (p.ok ? p.ms : 10000);
+  if (pts.length <= punti) {
+    const v = pts.map(val);
+    return v.length === 1 ? [v[0], v[0]] : v;
   }
-  const primo = v.find((x) => x != null) ?? 0;
-  let prec = primo;
+  const span = Math.max(ora - inizio, 1);
+  const v = new Array(punti).fill(null);
+  for (const p of pts) {
+    const q = Math.min(punti - 1, Math.floor(((p.t - inizio) / span) * punti));
+    v[q] = v[q] == null ? val(p) : Math.max(v[q], val(p));
+  }
+  let prec = v.find((x) => x != null);
   return v.map((x) => (x == null ? prec : (prec = x)));
 }
 
 const tutti = SERVIZI.map((s) => {
   const a = storico[s.id];
-  return { s, a, u: a[a.length - 1], st: stato(a), v: serie(a), falliti: a.filter((p) => !p.ok) };
+  return { s, a, u: a[a.length - 1], st: stato(a), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
 // ---------- pagine ----------
@@ -101,7 +107,7 @@ function riga(x) {
   const t = tono(x.st.k);
   const nota = t === 'ok' ? '' : `<small class="${t}">${esc(x.st.t)}</small>`;
   return `<a class="riga" href="/s/${x.s.id}/" data-nome="${esc((x.s.nome + ' ' + host(x.s.url)).toLowerCase())}">
-  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 6000)}
+  <span class="r-nome">${esc(x.s.nome)}${nota}</span>${icona(t)}${linea(x.v, t, 300, 60, 4000)}
 </a>`;
 }
 
@@ -144,7 +150,9 @@ function pagina(x) {
   else if (st.k === 'dubbio') spiega = `L'ultima verifica di ${esc(h)} alle ${oraIt(u.t)} non ha avuto risposta. Ricontrolliamo tra 5 minuti.`;
   else if (st.k === 'lento') spiega = `${esc(h)} risponde, ma lentamente: ${sec(u.ms)} all'ultima verifica delle ${oraIt(u.t)}.`;
   else spiega = `Alle ${oraIt(u.t)} ${esc(h)} ha risposto in ${sec(u.ms)}. Un sito che risponde può comunque avere problemi di accesso o nell'app.`;
-  const etich = [0, 6, 12, 18].map((i) => `<span style="left:${(i / 24) * 100}%">${oraIt(ora - (24 - i) * ORA_MS)}</span>`).join('') + `<span style="right:0">ora</span>`;
+  const span = ora - x.inizio;
+  const etich = [0, 1, 2, 3].map((k) => `<span style="left:${k * 25}%">${oraIt(x.inizio + (span * k) / 4)}</span>`).join('') + `<span style="right:0">ora</span>`;
+  const parziale = x.inizio > ora - GIORNO + QUARTO;
   const listaGuasti = falliti.length
     ? `<ul class="log">${falliti.slice(-12).reverse().map((g) => `<li>${DATAORA.format(new Date(g.t))} · ${g.c ? 'codice ' + g.c : 'nessuna risposta'}</li>`).join('')}</ul>`
     : `<p class="muted">Nessuna verifica fallita nelle ultime 24 ore.</p>`;
@@ -159,8 +167,8 @@ function pagina(x) {
     <div class="big-top">${pill(st)}<span class="muted small">verificato alle ${oraIt(u.t)}</span></div>
     <p>${spiega}</p>
   </div>
-  <h2>Tempo di risposta, ultime 24 ore</h2>
-  <div class="chart"><div class="chart-top muted small">Ogni 15 minuti · le verifiche fallite salgono a 10 s</div>${linea(v, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>
+  <h2>Tempo di risposta${parziale ? ` dalle ${oraIt(x.inizio)}` : ', ultime 24 ore'}</h2>
+  <div class="chart"><div class="chart-top muted small">Una verifica ogni 5 minuti · massimo ${sec(Math.max(...x.vg))}${parziale ? ' · lo storico si completa in 24 ore' : ''} · le verifiche fallite salgono a 10 s</div>${linea(x.vg, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>
   <h2>Verifiche non riuscite, ultime 24 ore</h2>
   ${listaGuasti}
   <h2>Cosa fare se ${esc(s.nome)} non funziona</h2>
