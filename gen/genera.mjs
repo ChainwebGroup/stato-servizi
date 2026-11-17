@@ -287,6 +287,7 @@ function home() {
   <div class="search"><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-4-4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><input id="cerca" type="search" placeholder="Cerca un servizio: INPS, SPID, Aruba PEC…" autocomplete="off"></div>
   <p class="muted small">Ultimo aggiornamento alle ${oraIt(ora)}</p>
   ${strip}
+  <p class="small"><a href="/attacco-hacker-oggi/">Pensi a un attacco hacker? Ecco come capire se è un guasto</a></p>
 </section>
 <div class="wrap">${sezioni}<p id="vuoto" class="muted" hidden>Nessun servizio trovato.</p></div>`;
   return piede(layout({
@@ -364,6 +365,41 @@ function piede(html) {
     .replace(/<p>Privacy:[\s\S]*?<\/p>/, '<p>Privacy: niente cookie, niente pubblicità, nessun dato dei visitatori salvato.</p>');
 }
 
+function paginaAttacco() {
+  const sotto = tutti.filter((x) => !['ok', 'na'].includes(x.st.k));
+  const elenco = sotto.length
+    ? `<div class="lista">${sotto.map(riga).join('')}</div>`
+    : `<div class="alert calm">In questo momento tutti i ${SERVIZI.length} servizi controllati rispondono.</div>`;
+  const corpo = `
+<div class="wrap narrow">
+  <a class="back" href="/">← Tutti i servizi</a>
+  <h1>Attacco hacker oggi? Prima controlla cosa non funziona</h1>
+  <p class="lead">Quando Poste, Outlook o il registro elettronico si bloccano, il primo pensiero è un attacco hacker. Molto spesso è un guasto. Qui vedi in tempo reale quali servizi hanno problemi adesso.</p>
+  <p class="muted small">Ultimo aggiornamento alle ${oraIt(ora)}.</p>
+  <h2>Servizi con problemi adesso</h2>
+  ${elenco}
+  <h2>Guasto o attacco: come capirlo</h2>
+  <ul class="tips">
+    <li>Se il servizio non risponde a nessuno, la causa è quasi sempre un guasto o un sovraccarico, non un attacco. Lo vedi qui e negli avvisi ufficiali del servizio.</li>
+    <li>Un attacco confermato lo comunicano l’azienda colpita e l’Agenzia per la Cybersicurezza Nazionale (ACN). Fino ad allora sono ipotesi.</li>
+    <li>Durante un disservizio aumentano le truffe: SMS ed e-mail che chiedono di «verificare l’account». Non cliccare e non dare codici a nessuno.</li>
+    <li>Se il problema è solo tuo, prova da un’altra rete o da un altro dispositivo prima di pensare al peggio.</li>
+  </ul>
+  <section class="cw">
+    <div><h2>Se l’attacco è alla tua azienda</h2>
+    <p>Cosa fare nelle prime ore, chi avvisare e come rimettersi in piedi: la guida di Chainweb per le imprese.</p></div>
+    <a class="btn" href="https://chainweb.solutions/it/attacco-hacker-cosa-fare?utm_source=stato-servizi&utm_medium=referral&utm_campaign=attacco-hacker">Cosa fare dopo un attacco hacker</a>
+  </section>
+  <h2>Servizi più cercati</h2>
+  <div class="links">${['posteid', 'postepay', 'app-postepay', 'outlook', 'microsoft-365', 'classeviva', 'argo', 'inps', 'app-io', 'spiditalia', 'aruba-pec'].filter((id) => PER_ID[id]).map((id) => `<a href="/s/${id}/">${esc(PER_ID[id].nome)}</a>`).join('')}</div>
+</div>`;
+  return piede(layout({
+    titolo: 'Attacco hacker oggi? Cosa non funziona adesso in Italia · Stato servizi Italia',
+    descr: 'Attacco hacker o guasto? Poste, Outlook, Microsoft, registro elettronico, SPID e banche: verifica in tempo reale quali servizi hanno problemi adesso.',
+    base: BASE, path: '/attacco-hacker-oggi/', corpo,
+  }));
+}
+
 // ---------- scrittura ----------
 async function scrivi(rel, testo) {
   const p = path.join(OUT, rel);
@@ -373,9 +409,10 @@ async function scrivi(rel, testo) {
 await fs.rm(OUT, { recursive: true, force: true });
 await scrivi('index.html', home());
 for (const x of tutti) await scrivi(`s/${x.s.id}/index.html`, pagina(x));
+await scrivi('attacco-hacker-oggi/index.html', paginaAttacco());
 await scrivi('storico.json', JSON.stringify(storico));
 await scrivi('robots.txt', `User-agent: *\nAllow: /\nSitemap: ${BASE}/sitemap.xml\n`);
-await scrivi('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['/', ...SERVIZI.map((s) => `/s/${s.id}/`)].map((p) => `<url><loc>${BASE}${p}</loc><changefreq>hourly</changefreq></url>`).join('')}</urlset>`);
+await scrivi('sitemap.xml', `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${['/', '/attacco-hacker-oggi/', ...SERVIZI.map((s) => `/s/${s.id}/`)].map((p) => `<url><loc>${BASE}${p}</loc><changefreq>hourly</changefreq></url>`).join('')}</urlset>`);
 await scrivi('_headers', `/*\n  Cache-Control: public, max-age=60\n/storico.json\n  Cache-Control: no-store\n`);
 await scrivi('404.html', piede(layout({ titolo: 'Pagina non trovata · Stato servizi Italia', descr: '', base: BASE, path: '/', corpo: '<div class="wrap narrow"><h1>Pagina non trovata</h1><p><a href="/">Torna a tutti i servizi</a></p></div>' })));
 const giu = tutti.filter((x) => x.st.k !== 'ok').map((x) => `${x.s.id}:${x.st.k}`);

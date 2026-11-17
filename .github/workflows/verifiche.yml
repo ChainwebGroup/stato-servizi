@@ -25,7 +25,7 @@ jobs:
       - name: Verifiche ogni 5 minuti per quasi 6 ore
         env:
           SITO: https://stato-servizi.pages.dev
-          BASE_URL: https://stato-servizi.pages.dev
+          BASE_URL: https://stato.chainweb.solutions
           AZZERA: ${{ github.event.inputs.azzera == 'si' && '1' || '0' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
