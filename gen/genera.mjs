@@ -3,6 +3,9 @@
 import { SERVIZI, CATEGORIE, CONSIGLI } from '../src/servizi.js';
 import { layout, linea, icona, pill, esc, host, tono, bloccoChainweb, oraIt, DATAORA, sec } from '../src/index.js';
 import fs from 'node:fs/promises';
+import dns from 'node:dns/promises';
+import net from 'node:net';
+import tls from 'node:tls';
 import path from 'node:path';
 
 const OUT = process.argv[2] || 'out';
@@ -112,10 +115,63 @@ async function avviso(s) {
 
 const ora = Date.now();
 const avvisi = Object.fromEntries(await Promise.all(SERVIZI.filter((s) => s.ufficiale).map(async (s) => [s.id, await avviso(s)])));
+// ---------- server: DNS, IP, connessione, certificato ----------
+function tcp(ip, ms = 5000) {
+  return new Promise((ok) => {
+    const t0 = Date.now();
+    const so = net.connect({ host: ip, port: 443, timeout: ms });
+    so.once('connect', () => { const d = Date.now() - t0; so.destroy(); ok(d); });
+    so.once('timeout', () => { so.destroy(); ok(-1); });
+    so.once('error', () => { so.destroy(); ok(-1); });
+  });
+}
+function certificato(ip, nome, ms = 6000) {
+  return new Promise((ok) => {
+    const so = tls.connect({ host: ip, port: 443, servername: nome, timeout: ms, rejectUnauthorized: false }, () => {
+      const c = so.getPeerCertificate();
+      const giorni = c && c.valid_to ? Math.floor((new Date(c.valid_to) - Date.now()) / 86400000) : null;
+      const valido = so.authorized;
+      so.end();
+      ok({ valido, giorni, motivo: valido ? '' : String(so.authorizationError || '') });
+    });
+    so.once('timeout', () => { so.destroy(); ok(null); });
+    so.once('error', () => { so.destroy(); ok(null); });
+  });
+}
+async function sonda(nome) {
+  const r = { h: nome, dns: 0, ip: [], ipok: 0, ms: null, cert: null };
+  let ips = [];
+  try { ips = await dns.resolve4(nome); } catch {
+    try { ips = (await dns.lookup(nome, { all: true, family: 4 })).map((x) => x.address); } catch { return r; }
+  }
+  r.dns = 1;
+  ips = [...new Set(ips)].slice(0, 6);
+  r.ip = ips;
+  const tempi = await Promise.all(ips.map((ip) => tcp(ip)));
+  r.ipok = tempi.filter((x) => x >= 0).length;
+  const buoni = tempi.filter((x) => x >= 0);
+  r.ms = buoni.length ? Math.min(...buoni) : null;
+  const primo = ips[tempi.findIndex((x) => x >= 0)];
+  if (primo) r.cert = await certificato(primo, nome);
+  return r;
+}
+function hostDi(s) {
+  return [...new Set([s.url, s.check, ...(s.server || [])].filter(Boolean).map((u) => { try { return new URL(u.includes('://') ? u : 'https://' + u).hostname; } catch { return null; } }).filter(Boolean))];
+}
+// problemi di un server: 'giu' (nessun IP raggiungibile o nome non risolto), 'parziale' (solo alcuni IP), 'cert' (certificato non valido)
+function problemaServer(r) {
+  if (!r.dns || !r.ipok) return 'giu';
+  if (r.cert && !r.cert.valido) return 'cert';
+  if (r.ipok < r.ip.length) return 'parziale';
+  return '';
+}
+
 const ris = await aGruppi(SERVIZI, controlla);
+const server = await aGruppi(SERVIZI, (s) => Promise.all(hostDi(s).map(sonda)), 6);
 SERVIZI.forEach((s, i) => {
   const a = (storico[s.id] || []).filter((p) => p.t > ora - GIORNO);
-  a.push({ t: ora, ...ris[i] });
+  const pb = server[i].map(problemaServer);
+  a.push({ t: ora, ...ris[i], sg: pb.filter((x) => x === 'giu').length, sp: pb.filter((x) => x === 'parziale').length, sc: pb.filter((x) => x === 'cert').length });
   storico[s.id] = a;
 });
 
@@ -128,6 +184,10 @@ function stato(a, uff) {
   if (uff?.livello === 'grave') return { k: 'problemi', t: 'Disservizio confermato dal servizio' };
   if (err === 1) return { k: 'dubbio', t: 'Verifica in corso' };
   if (uff?.livello === 'minore') return { k: 'parziale', t: 'Disservizio parziale segnalato dal servizio' };
+  const due = a.length >= 2 ? a.slice(-2) : null;
+  if (due && due.every((p) => p.sg > 0)) return { k: 'problemi', t: u.sg > 1 ? `${u.sg} server non rispondono` : 'Un server del servizio non risponde' };
+  if (due && due.every((p) => p.sc > 0)) return { k: 'manut', t: 'Certificato di sicurezza non valido' };
+  if (due && due.every((p) => p.sp > 0)) return { k: 'parziale', t: 'Alcuni indirizzi IP non rispondono' };
   if (u.m && a.slice(-2).every((p) => p.m)) return { k: 'manut', t: 'Pagina di manutenzione o di errore' };
   const lenti = a.slice(-2).every((p) => p.ms > 5000);
   if (lenti && a.length >= 2) return { k: 'lento', t: 'Risponde lentamente' };
@@ -157,7 +217,7 @@ function serie(a, punti) {
 
 const tutti = SERVIZI.map((s) => {
   const a = storico[s.id];
-  return { s, a, u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
+  return { s, a, srv: server[SERVIZI.indexOf(s)], u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
 // Linea dell'intestazione: tempo medio di risposta di tutti i servizi a ogni giro di verifiche (dati reali).
@@ -228,13 +288,24 @@ function home() {
   }));
 }
 
+function righeServer(lista) {
+  return lista.map((r) => {
+    const pb = problemaServer(r);
+    const ip = !r.dns ? 'Nome non trovato (DNS)' : !r.ipok ? `Nessuno dei ${r.ip.length} IP risponde` : r.ipok < r.ip.length ? `${r.ipok} di ${r.ip.length} IP rispondono` : r.ip.length === 1 ? '1 IP, risponde' : `${r.ip.length} IP, tutti rispondono`;
+    const elenco = r.ip.length ? `<br><span class="muted small">${r.ip.slice(0, 3).join(', ')}${r.ip.length > 3 ? '…' : ''}</span>` : '';
+    const cert = !r.cert ? '—' : r.cert.valido ? `valido, scade tra ${r.cert.giorni} giorni` : `non valido${r.cert.motivo ? ` (${esc(r.cert.motivo)})` : ''}`;
+    return `<tr class="${pb ? 'ko' : ''}"><td><code>${esc(r.h)}</code></td><td data-l="Indirizzi IP">${ip}${elenco}</td><td data-l="Connessione">${r.ms != null ? r.ms + ' ms' : '—'}</td><td data-l="Certificato">${cert}</td></tr>`;
+  }).join('');
+}
+
 function pagina(x) {
   const { s, u, st, v, falliti } = x;
   const h = host(s.check || s.url);
   let spiega;
   if (st.k === 'giu') spiega = `${esc(h)} non risponde da più verifiche di fila (ultima alle ${oraIt(u.t)}).`;
   else if (st.k === 'dubbio') spiega = `L'ultima verifica di ${esc(h)} alle ${oraIt(u.t)} non ha avuto risposta. Ricontrolliamo tra 5 minuti.`;
-  else if (st.k === 'problemi' || st.k === 'parziale') spiega = `Il servizio stesso segnala un disservizio: «${esc(x.uff.testo)}». Ultima nostra verifica alle ${oraIt(u.t)}.`;
+  else if ((st.k === 'problemi' || st.k === 'parziale') && x.uff && x.uff.livello !== 'ok') spiega = `Il servizio stesso segnala un disservizio: «${esc(x.uff.testo)}». Ultima nostra verifica alle ${oraIt(u.t)}.`;
+  else if (st.k === 'problemi' || st.k === 'parziale' || (st.k === 'manut' && u.sc)) spiega = `${esc(st.t)} da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}). I dettagli sono nella tabella «Server controllati» qui sotto.`;
   else if (st.k === 'manut') spiega = `${esc(h)} risponde, ma con una pagina di manutenzione o di errore (verifica delle ${oraIt(u.t)}).`;
   else if (st.k === 'lento') spiega = `${esc(h)} risponde, ma lentamente: ${sec(u.ms)} all'ultima verifica delle ${oraIt(u.t)}.`;
   else spiega = `Alle ${oraIt(u.t)} ${esc(h)} ha risposto in ${sec(u.ms)}. Un sito che risponde può comunque avere problemi di accesso o nell'app.`;
@@ -257,6 +328,9 @@ function pagina(x) {
     <p class="muted small">Cosa controlliamo: ${esc(s.cosa || 'la pagina principale del servizio')}${s.ufficiale ? ', e gli avvisi pubblicati dal servizio stesso' : ''}.</p>
     ${x.uff ? `<div class="ufficiale ${x.uff.livello}"><strong>Stato ufficiale del servizio</strong><p>${esc(x.uff.testo)} · <a href="${x.uff.link}" rel="nofollow noopener">pagina di stato</a></p></div>` : ''}
   </div>
+  <h2>Server controllati</h2>
+  <p class="muted small">Per ogni server del servizio: se il nome si risolve (DNS), quanti indirizzi IP rispondono sulla porta 443, il tempo di connessione e il certificato di sicurezza.</p>
+  <div class="tab"><table class="srv"><thead><tr><th>Server</th><th>Indirizzi IP</th><th>Connessione</th><th>Certificato</th></tr></thead><tbody>${righeServer(x.srv)}</tbody></table></div>
   <h2>Tempo di risposta${parziale ? ` dalle ${oraIt(x.inizio)}` : ', ultime 24 ore'}</h2>
   <div class="chart"><div class="chart-top muted small">Una verifica ogni 5 minuti · massimo ${sec(Math.max(...x.vg))}${parziale ? ' · lo storico si completa in 24 ore' : ''} · le verifiche fallite salgono a 10 s</div>${linea(x.vg, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>
   <h2>Verifiche non riuscite, ultime 24 ore</h2>
