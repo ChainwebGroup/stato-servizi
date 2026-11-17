@@ -49,6 +49,8 @@ export const SERVIZI = [
   // Banche e pagamenti
   { id: 'poste', nome: 'Poste Italiane', cat: 'banche', url: 'https://www.poste.it/' },
   { id: 'postepay', nome: 'Postepay', cat: 'banche', url: 'https://postepay.poste.it/' },
+  { id: 'app-postepay', nome: 'App Postepay', cat: 'banche', url: 'https://postepay.poste.it/', check: 'https://ppayapp.mobile.poste.it/', cosa: 'il server dell’app Postepay (ppayapp.mobile.poste.it, dal registro pubblico dei certificati)' },
+  { id: 'accesso-app-poste', nome: 'Accesso alle app di Poste', cat: 'banche', url: 'https://www.poste.it/', check: 'https://securelogin.mobile.poste.it/', cosa: 'il server di accesso delle app di Poste (securelogin.mobile.poste.it, dal registro pubblico dei certificati)' },
   { id: 'intesa-sanpaolo', nome: 'Intesa Sanpaolo', cat: 'banche', url: 'https://www.intesasanpaolo.com/' },
   { id: 'unicredit', nome: 'UniCredit', cat: 'banche', url: 'https://www.unicredit.it/' },
   { id: 'bper', nome: 'BPER Banca', cat: 'banche', url: 'https://www.bper.it/' },
