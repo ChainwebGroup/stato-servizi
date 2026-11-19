@@ -32,7 +32,12 @@ const UA = 'Mozilla/5.0 (compatible; StatoServiziItalia/1.0)';
 
 // Pagina-ponte che si invia da sola con JavaScript (es. webmail.pec.it → login.aruba.it): la seguiamo come farebbe il browser.
 function ponte(html) {
-  if (html.length > 6000 || !/\.submit\(\)/.test(html)) return null;
+  if (html.length > 6000) return null;
+  // <meta http-equiv="refresh" content="0; url=..."> immediato (es. youweb.bancobpm.it, ecommerce.nexi.it, sella.it)
+  const mr = html.match(/<meta[^>]+http-equiv=["']?refresh["']?[^>]*content=["']\s*([\d.]+)\s*;\s*url=['"]?([^"'>\s]+)/i)
+    || html.match(/<meta[^>]+content=["']\s*([\d.]+)\s*;\s*url=['"]?([^"'>\s]+)[^>]*http-equiv=["']?refresh/i);
+  if (mr && +mr[1] <= 2) return { action: mr[2].replace(/&amp;/g, '&'), post: false, campi: [] };
+  if (!/\.submit\(\)/.test(html)) return null;
   const f = html.match(/<form[^>]*action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/i);
   if (!f) return null;
   const campi = [...f[2].matchAll(/<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"/gi)].map((m) => [m[1], m[2]]);
@@ -68,9 +73,11 @@ async function prova(s) {
       }
       if (r.status >= 500) { try { await r.body?.cancel(); } catch {} return { ...primo, c: r.status, d: 1, ...fin(url, inizio) }; }
       const tipo = r.headers.get('content-type') || '';
-      if (r.status === 200 && (s.attendi || tipo.includes('html'))) {
+      if (r.status === 200 && (s.attendi || s.guasto || tipo.includes('html'))) {
         let testo = '';
         try { testo = (await r.text()).slice(0, 300000); } catch {}
+        // il servizio stesso dice che qualcosa dietro non funziona (es. Italo: "isSOADown":true)
+        if (s.guasto && testo.toLowerCase().replace(/\s+/g, '').includes(s.guasto)) return { ...primo, c: r.status, g: 1, ...fin(url, inizio) };
         const p = ponte(testo);
         if (p) {
           const q = new URLSearchParams(p.campi);
@@ -194,7 +201,7 @@ function tcp(ip, ms = 5000) {
 }
 function certificato(ip, nome, ms = 6000) {
   return new Promise((ok) => {
-    const so = tls.connect({ host: ip, port: 443, servername: nome, timeout: ms, rejectUnauthorized: false }, () => {
+    const so = tls.connect({ host: ip, port: 443, servername: net.isIP(nome) ? undefined : nome, timeout: ms, rejectUnauthorized: false }, () => {
       const c = so.getPeerCertificate();
       const giorni = c && c.valid_to ? Math.floor((new Date(c.valid_to) - Date.now()) / 86400000) : null;
       const valido = so.authorized;
@@ -299,6 +306,8 @@ function stato(a, uff, s) {
     return { k: 'problemi', t: u.pm > 1 ? `${u.pm} server di posta non rispondono` : 'Un server di posta non risponde',
       sp: `Il sito risponde, ma ${giu.length ? giu.join(' e ') : 'un server di posta'} non risponde da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}): leggere o inviare la posta può non funzionare.` };
   }
+  if (due && due.every((p) => p.g)) return { k: 'problemi', t: 'Il servizio segnala un guasto interno',
+    sp: `${h0} risponde, ma la sua risposta dice che i sistemi interni non funzionano, da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}).` };
   const dv = due && !reteDiversa && due.every((p) => diverso(s, p)) ? diverso(s, u) : null;
   if (dv === 'ko') return { k: 'problemi', t: 'Il server di accesso non risponde',
     sp: `${h0} risponde, ma la pagina successiva${u.f ? ` su ${u.f}` : ''}, di solito raggiungibile, non risponde da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}). Spesso vuol dire che l'accesso non funziona.` };
