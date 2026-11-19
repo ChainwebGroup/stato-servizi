@@ -1,5 +1,6 @@
 // Elenco dei servizi controllati. gruppo: 0 o 1 (due esecuzioni cron, max 50 richieste ciascuna).
-// url: pagina che deve rispondere. Qualsiasi risposta HTTP sotto 500 = il server risponde.
+// url/check: pagina da verificare; si seguono redirect e pagine-ponte. Conta il cambiamento rispetto al solito, non il codice.
+// posta: server IMAP/SMTP («host:porta») che devono rispondere al saluto.
 
 export const CATEGORIE = [
   { id: 'id', nome: 'SPID e identità digitale' },
@@ -41,8 +42,8 @@ export const SERVIZI = [
   { id: 'noipa', nome: 'NoiPA · stipendi PA', cat: 'pa', url: 'https://noipa.mef.gov.it/' },
   { id: 'tessera-sanitaria', nome: 'Sistema Tessera Sanitaria', cat: 'pa', url: 'https://sistemats1.sanita.finanze.it/portale/' },
   // PEC, fatture, hosting
-  { id: 'aruba-pec', nome: 'Aruba PEC', cat: 'lavoro', url: 'https://webmail.pec.it/' },
-  { id: 'legalmail', nome: 'Legalmail (PEC InfoCert)', cat: 'lavoro', url: 'https://www.legalmail.it/' },
+  { id: 'aruba-pec', nome: 'Aruba PEC', cat: 'lavoro', url: 'https://webmail.pec.it/', cosa: 'la pagina di accesso alla webmail PEC (webmail.pec.it, che rimanda a login.aruba.it)', server: ['login.aruba.it'], posta: ['imaps.pec.aruba.it:993', 'smtps.pec.aruba.it:465'] },
+  { id: 'legalmail', nome: 'Legalmail (PEC InfoCert)', cat: 'lavoro', url: 'https://www.legalmail.it/', posta: ['mbox.cert.legalmail.it:993', 'sendm.cert.legalmail.it:465'] },
   { id: 'aruba', nome: 'Aruba', cat: 'lavoro', url: 'https://www.aruba.it/' },
   { id: 'register', nome: 'Register.it', cat: 'lavoro', url: 'https://www.register.it/', ufficiale: { tipo: 'statuspage', url: 'https://status.register.it' } },
   { id: 'fatture-in-cloud', nome: 'Fatture in Cloud', cat: 'lavoro', url: 'https://secure.fattureincloud.it/' },
@@ -90,10 +91,10 @@ export const SERVIZI = [
   { id: 'axerve', nome: 'Axerve', cat: 'pagamenti', url: 'https://www.axerve.com/' },
   { id: 'scalapay', nome: 'Scalapay', cat: 'pagamenti', url: 'https://www.scalapay.com/', ufficiale: { tipo: 'statuspage', url: 'https://status.scalapay.com' } },
   // Posta elettronica
-  { id: 'libero-mail', nome: 'Libero Mail', cat: 'mail', url: 'https://login.libero.it/' },
-  { id: 'virgilio-mail', nome: 'Virgilio Mail', cat: 'mail', url: 'https://login.virgilio.it/' },
-  { id: 'aruba-webmail', nome: 'Aruba Webmail', cat: 'mail', url: 'https://webmail.aruba.it/' },
-  { id: 'yahoo-mail', nome: 'Yahoo Mail', cat: 'mail', url: 'https://mail.yahoo.com/' },
+  { id: 'libero-mail', nome: 'Libero Mail', cat: 'mail', url: 'https://login.libero.it/', posta: ['imapmail.libero.it:993', 'smtp.libero.it:465'] },
+  { id: 'virgilio-mail', nome: 'Virgilio Mail', cat: 'mail', url: 'https://login.virgilio.it/', posta: ['in.virgilio.it:993', 'out.virgilio.it:465'] },
+  { id: 'aruba-webmail', nome: 'Aruba Webmail', cat: 'mail', url: 'https://webmail.aruba.it/', cosa: 'la pagina di accesso alla webmail (webmail.aruba.it, che rimanda a loginpel.aruba.it)', server: ['loginpel.aruba.it'], posta: ['imaps.aruba.it:993', 'smtps.aruba.it:465'] },
+  { id: 'yahoo-mail', nome: 'Yahoo Mail', cat: 'mail', url: 'https://mail.yahoo.com/', posta: ['imap.mail.yahoo.com:993', 'smtp.mail.yahoo.com:465'] },
   // Scuola
   { id: 'classeviva', nome: 'ClasseViva Spaggiari', cat: 'scuola', url: 'https://web.spaggiari.eu/' },
   { id: 'argo', nome: 'Argo · registro elettronico', cat: 'scuola', url: 'https://www.portaleargo.it/' },
@@ -111,8 +112,8 @@ export const SERVIZI = [
   { id: 'whatsapp', nome: 'WhatsApp', cat: 'app', url: 'https://web.whatsapp.com/' },
   { id: 'instagram', nome: 'Instagram', cat: 'app', url: 'https://www.instagram.com/' },
   { id: 'facebook', nome: 'Facebook', cat: 'app', url: 'https://www.facebook.com/' },
-  { id: 'gmail', nome: 'Gmail', cat: 'mail', url: 'https://mail.google.com/', ufficiale: { tipo: 'google', url: 'https://www.google.com/appsstatus/dashboard/', prodotto: 'Gmail' } },
-  { id: 'outlook', nome: 'Outlook', cat: 'mail', url: 'https://outlook.office.com/', server: ['outlook.office365.com', 'login.microsoftonline.com'] },
+  { id: 'gmail', nome: 'Gmail', cat: 'mail', url: 'https://mail.google.com/', ufficiale: { tipo: 'google', url: 'https://www.google.com/appsstatus/dashboard/', prodotto: 'Gmail' }, posta: ['imap.gmail.com:993', 'smtp.gmail.com:465'] },
+  { id: 'outlook', nome: 'Outlook', cat: 'mail', url: 'https://outlook.office.com/', server: ['outlook.office365.com', 'login.microsoftonline.com'], posta: ['outlook.office365.com:993', 'smtp.office365.com:587'] },
   { id: 'microsoft-365', nome: 'Microsoft 365', cat: 'mail', url: 'https://www.office.com/', check: 'https://login.microsoftonline.com/', cosa: 'il server di accesso di Microsoft (login.microsoftonline.com), da cui dipendono Outlook, Teams e Office', server: ['outlook.office365.com', 'teams.microsoft.com'] },
   { id: 'teams', nome: 'Microsoft Teams', cat: 'app', url: 'https://teams.microsoft.com/', server: ['login.microsoftonline.com'] },
   { id: 'chatgpt', nome: 'ChatGPT', cat: 'app', url: 'https://chatgpt.com/', ufficiale: { tipo: 'statuspage', url: 'https://status.openai.com' } },

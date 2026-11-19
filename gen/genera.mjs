@@ -28,32 +28,99 @@ if (process.env.STORICO_VUOTO !== '1') {
 const MANUT = /manutenzion|non (è )?disponibil|temporaneamente|maintenance|unavailable|errore|error 5\d\d|\b50[234]\b/i;
 const MANUT_TESTO = /(servizio|sito|portale|applicazione)[^<]{0,40}(temporaneamente )?(non disponibile|in manutenzione|sospeso)|we('| a)re (currently )?(down for )?maintenance/i;
 
+const UA = 'Mozilla/5.0 (compatible; StatoServiziItalia/1.0)';
+
+// Pagina-ponte che si invia da sola con JavaScript (es. webmail.pec.it → login.aruba.it): la seguiamo come farebbe il browser.
+function ponte(html) {
+  if (html.length > 6000 || !/\.submit\(\)/.test(html)) return null;
+  const f = html.match(/<form[^>]*action="([^"]+)"[^>]*>([\s\S]*?)<\/form>/i);
+  if (!f) return null;
+  const campi = [...f[2].matchAll(/<input[^>]*name="([^"]+)"[^>]*value="([^"]*)"/gi)].map((m) => [m[1], m[2]]);
+  return { action: f[1].replace(/&amp;/g, '&'), post: /method="post"/i.test(f[0]), campi };
+}
+
+// Una verifica: il primo indirizzo dice se il sito risponde (ok, ms, come prima);
+// poi seguiamo redirect e pagine-ponte fino alla pagina vera (c = codice finale, f = server finale se diverso,
+// d = 1 se un passaggio successivo non risponde). v: 2 = verifica completa, confrontabile con il comportamento abituale.
 async function prova(s) {
   const t0 = Date.now();
+  const inizio = s.check || s.url;
+  const segnale = AbortSignal.timeout(15000);
+  let url = inizio, opz = {}, primo = null;
   try {
-    const r = await fetch(s.check || s.url, {
-      method: 'GET',
-      redirect: 'manual',
-      signal: AbortSignal.timeout(10000),
-      headers: { 'user-agent': 'Mozilla/5.0 (compatible; StatoServiziItalia/1.0)', accept: 'text/html,application/json' },
-    });
-    const ms = Date.now() - t0;
-    const tipo = r.headers.get('content-type') || '';
-    if (r.status === 200 && (s.attendi || tipo.includes('html'))) {
-      let testo = '';
-      try { testo = (await r.text()).slice(0, 300000); } catch {}
-      // il server risponde ma non con quello che deve (es. il ping dell'app IO deve dire "ok")
-      if (s.attendi && !testo.trim().toLowerCase().startsWith(s.attendi)) return { ok: 0, c: r.status, ms, x: 'risposta inattesa' };
-      // pagina di manutenzione o di errore servita come pagina normale
-      const titolo = (testo.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i) || [])[1] || '';
-      if (MANUT.test(titolo) || MANUT_TESTO.test(testo.slice(0, 20000))) return { ok: 1, c: r.status, ms, m: 1 };
-      return { ok: 1, c: r.status, ms };
+    for (let passo = 0; passo < 8; passo++) {
+      let r;
+      try {
+        r = await fetch(url, { method: 'GET', redirect: 'manual', signal: segnale, ...opz, headers: { 'user-agent': UA, accept: 'text/html,application/json', ...(opz.headers || {}) } });
+      } catch (e) {
+        if (!primo) throw e;
+        return { ...primo, c: 0, d: 1, ...fin(url, inizio) };
+      }
+      if (!primo) {
+        primo = { ok: r.status < 500 ? 1 : 0, ms: Date.now() - t0, v: 2 };
+        if (!primo.ok) { try { await r.body?.cancel(); } catch {} return { ...primo, c: r.status }; }
+      }
+      const dove = r.headers.get('location');
+      if (r.status >= 300 && r.status < 400 && dove) {
+        try { await r.body?.cancel(); } catch {}
+        url = new URL(dove, url).href; opz = {};
+        continue;
+      }
+      if (r.status >= 500) { try { await r.body?.cancel(); } catch {} return { ...primo, c: r.status, d: 1, ...fin(url, inizio) }; }
+      const tipo = r.headers.get('content-type') || '';
+      if (r.status === 200 && (s.attendi || tipo.includes('html'))) {
+        let testo = '';
+        try { testo = (await r.text()).slice(0, 300000); } catch {}
+        const p = ponte(testo);
+        if (p) {
+          const q = new URLSearchParams(p.campi);
+          if (p.post) { url = p.action; opz = { method: 'POST', body: q, headers: { 'content-type': 'application/x-www-form-urlencoded' } }; }
+          else { url = p.action + (p.action.includes('?') ? '&' : '?') + q; opz = {}; }
+          continue;
+        }
+        const base = { ...primo, c: r.status, ...fin(url, inizio) };
+        // il server risponde ma non con quello che deve (es. il ping dell'app IO deve dire "ok")
+        if (s.attendi && !testo.trim().toLowerCase().startsWith(s.attendi)) return { ...base, ok: 0, x: 'risposta inattesa' };
+        // pagina di manutenzione o di errore servita come pagina normale
+        const titolo = (testo.match(/<title[^>]*>([\s\S]{0,200}?)<\/title>/i) || [])[1] || '';
+        if (MANUT.test(titolo) || MANUT_TESTO.test(testo.slice(0, 20000))) return { ...base, m: 1 };
+        return base;
+      }
+      try { await r.body?.cancel(); } catch {}
+      return { ...primo, c: r.status, ...fin(url, inizio) };
     }
-    try { await r.body?.cancel(); } catch {}
-    return { ok: r.status < 500 ? 1 : 0, c: r.status, ms };
+    return { ...primo, c: 0, d: 1, ...fin(url, inizio) };
   } catch {
-    return { ok: 0, c: 0, ms: Date.now() - t0 };
+    return { ok: 0, c: 0, ms: Date.now() - t0, v: 2 };
   }
+}
+// server finale, solo se diverso da quello di partenza (per non appesantire lo storico)
+function fin(url, inizio) {
+  try { const a = new URL(url).hostname, b = new URL(inizio).hostname; return a === b ? {} : { f: a }; } catch { return {}; }
+}
+
+// ---------- server di posta: IMAP e SMTP devono salutare (* OK / 220) ----------
+function saluto(hp, ms = 8000) {
+  return new Promise((fine) => {
+    const [h, p] = hp.split(':');
+    const t0 = Date.now();
+    const chiaro = ['25', '587', '143', '110'].includes(p);
+    const so = chiaro ? net.connect({ host: h, port: +p, timeout: ms }) : tls.connect({ host: h, port: +p, servername: h, timeout: ms });
+    let fatto = false;
+    const esito = (ok, testo) => { if (fatto) return; fatto = true; so.destroy(); fine({ hp, ok, ms: Date.now() - t0, testo }); };
+    so.setEncoding('utf8');
+    so.once('data', (d) => { const riga = d.split('\n')[0].trim(); esito(/^(\* OK|220|\+OK)/i.test(riga) ? 1 : 0, riga.slice(0, 80)); });
+    so.once('timeout', () => esito(0, 'nessuna risposta'));
+    so.once('error', (e) => esito(0, e.code || 'errore'));
+  });
+}
+async function posta(lista) {
+  let r = await Promise.all(lista.map((hp) => saluto(hp)));
+  if (r.some((x) => !x.ok)) {
+    await new Promise((f) => setTimeout(f, 2000));
+    r = await Promise.all(r.map((x) => (x.ok ? x : saluto(x.hp))));
+  }
+  return r;
 }
 
 // una seconda prova dopo 3 s prima di segnare un errore
@@ -174,17 +241,50 @@ function problemaServer(r) {
 
 const ris = await aGruppi(SERVIZI, controlla);
 const server = await aGruppi(SERVIZI, (s) => Promise.all(hostDi(s).map(sonda)), 6);
+const caselle = await aGruppi(SERVIZI, (s) => (s.posta ? posta(s.posta) : []), 6);
+// se in questo giro non risponde la maggior parte dei server di posta di tutti i servizi, è la nostra rete (es. porte chiuse)
+const tuttiPosta = caselle.flat();
+const retePosta = tuttiPosta.length >= 4 && tuttiPosta.filter((x) => !x.ok).length / tuttiPosta.length >= 0.5;
 SERVIZI.forEach((s, i) => {
   const a = (storico[s.id] || []).filter((p) => p.t > ora - GIORNO);
   // se il sito su questo stesso server ha risposto in questo giro, il server non può essere «giù»
   const hv = ris[i].ok ? hostDi({ url: s.check || s.url })[0] : null;
   const pb = server[i].map((r) => (r.h === hv && problemaServer(r) === 'giu' ? '' : problemaServer(r)));
-  a.push({ t: ora, ...ris[i], sg: pb.filter((x) => x === 'giu').length, sp: pb.filter((x) => x === 'parziale').length, sc: pb.filter((x) => x === 'cert').length });
+  const pm = retePosta ? 0 : caselle[i].filter((x) => !x.ok).length;
+  a.push({ t: ora, ...ris[i], sg: pb.filter((x) => x === 'giu').length, sp: pb.filter((x) => x === 'parziale').length, sc: pb.filter((x) => x === 'cert').length, ...(s.posta ? { pm } : {}) });
   storico[s.id] = a;
 });
 
+// ---------- comportamento abituale ----------
+// Firma di una verifica completa: codice finale (2xx raggruppati) e server finale; «ko» se un passaggio dopo il primo non risponde.
+// Molti indirizzi di accesso rispondono sempre 401/403/404 o rimandano a un server spento: per loro è normale.
+// Conta il cambiamento rispetto alle ultime 24 ore, non il codice in sé.
+const firma = (p) => (p.d ? 'ko' : p.c >= 200 && p.c < 300 ? '2xx' : String(p.c)) + (p.f ? '@' + p.f : '');
+const errore = (p) => !!p.d || p.c >= 400 || p.c === 0;
+const abituale = {};
+for (const s of SERVIZI) {
+  const a = (storico[s.id] || []).filter((p) => p.v === 2 && p.ok);
+  const prima = a.slice(0, -2);
+  if (prima.length < 24) continue; // servono almeno 2 ore di verifiche complete
+  const conta = new Map();
+  for (const p of prima) conta.set(firma(p), (conta.get(firma(p)) || 0) + 1);
+  const [f, n] = [...conta.entries()].sort((x, y) => y[1] - x[1])[0];
+  if (n / prima.length >= 0.8) abituale[s.id] = { f, err: errore(prima.findLast((p) => firma(p) === f)) };
+}
+// diverso dal solito in modo peggiore: errore dove di solito non c'è, oppure un altro server finale
+function diverso(s, p) {
+  const ab = abituale[s.id];
+  if (!ab || !p || p.v !== 2 || !p.ok || firma(p) === ab.f) return null;
+  if (errore(p) && !ab.err) return p.d ? 'ko' : 'errore';
+  if (!errore(p) && !ab.err && p.f !== (ab.f.split('@')[1] || undefined)) return 'altrove';
+  return null;
+}
+// se nello stesso giro cambia comportamento un terzo dei servizi, è la nostra rete
+const cambiati = SERVIZI.filter((s) => diverso(s, storico[s.id].at(-1))).length;
+const reteDiversa = Object.keys(abituale).length >= 10 && cambiati / Object.keys(abituale).length >= 0.33;
+
 // ---------- stato ----------
-function stato(a, uff) {
+function stato(a, uff, s) {
   const u = a[a.length - 1];
   let err = 0;
   for (let i = a.length - 1; i >= 0 && !a[i].ok; i--) err++;
@@ -193,6 +293,19 @@ function stato(a, uff) {
   if (err === 1) return { k: 'dubbio', t: 'Verifica in corso' };
   if (uff?.livello === 'minore') return { k: 'parziale', t: 'Disservizio parziale segnalato dal servizio' };
   const due = a.length >= 2 ? a.slice(-2) : null;
+  const h0 = host(s.check || s.url);
+  if (due && due.every((p) => p.pm > 0)) {
+    const giu = (caselle[SERVIZI.indexOf(s)] || []).filter((x) => !x.ok).map((x) => x.hp.split(':')[0]);
+    return { k: 'problemi', t: u.pm > 1 ? `${u.pm} server di posta non rispondono` : 'Un server di posta non risponde',
+      sp: `Il sito risponde, ma ${giu.length ? giu.join(' e ') : 'un server di posta'} non risponde da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}): leggere o inviare la posta può non funzionare.` };
+  }
+  const dv = due && !reteDiversa && due.every((p) => diverso(s, p)) ? diverso(s, u) : null;
+  if (dv === 'ko') return { k: 'problemi', t: 'Il server di accesso non risponde',
+    sp: `${h0} risponde, ma la pagina successiva${u.f ? ` su ${u.f}` : ''}, di solito raggiungibile, non risponde da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}). Spesso vuol dire che l'accesso non funziona.` };
+  if (dv === 'errore') return { k: 'problemi', t: `Errore ${u.c} al posto della pagina abituale`,
+    sp: `Di solito ${u.f || h0} apre la pagina normalmente; da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}) risponde con l'errore ${u.c}.` };
+  if (dv === 'altrove') return { k: 'parziale', t: 'Rimanda a una pagina diversa dal solito',
+    sp: `Da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}) ${h0} rimanda a ${u.f || h0} invece che alla pagina abituale: a volte è una pagina di manutenzione o di errore.` };
   if (due && due.every((p) => p.sg > 0)) return { k: 'problemi', t: u.sg > 1 ? `${u.sg} server non rispondono` : 'Un server del servizio non risponde' };
   if (due && due.every((p) => p.sc > 0)) return { k: 'manut', t: 'Certificato di sicurezza non valido' };
   if (due && due.every((p) => p.sp > 0)) return { k: 'parziale', t: 'Alcuni indirizzi IP non rispondono' };
@@ -244,7 +357,7 @@ function serie(a, punti, id) {
 
 const tutti = SERVIZI.map((s) => {
   const a = storico[s.id];
-  return { s, a, srv: server[SERVIZI.indexOf(s)], u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id]), v: serie(a, 96, s.id), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
+  return { s, a, srv: server[SERVIZI.indexOf(s)], u: a[a.length - 1], uff: avvisi[s.id] || null, st: stato(a, avvisi[s.id], s), posta: caselle[SERVIZI.indexOf(s)], v: serie(a, 96, s.id), vg: serie(a, 288), inizio: inizioDi(a), falliti: a.filter((p) => !p.ok) };
 });
 
 // Linea dell'intestazione: tempo medio di risposta di tutti i servizi a ogni giro di verifiche (dati reali).
@@ -327,11 +440,20 @@ function righeServer(lista, hv) {
   }).join('');
 }
 
+function righePosta(lista = []) {
+  const nome = (p) => ({ 993: 'Posta in entrata (IMAP)', 143: 'Posta in entrata (IMAP)', 995: 'Posta in entrata (POP3)', 465: 'Posta in uscita (SMTP)', 587: 'Posta in uscita (SMTP)' }[p] || 'Server di posta');
+  return lista.map((r) => {
+    const [h, p] = r.hp.split(':');
+    return `<tr class="${r.ok ? '' : 'ko'}"><td><code>${esc(h)}</code></td><td data-l="Server di posta">${nome(p)}, porta ${p}: ${r.ok ? 'risponde' : `non risponde (${esc(r.testo)})`}</td><td data-l="Connessione">${r.ok ? r.ms + ' ms' : '—'}</td><td data-l="Certificato">—</td></tr>`;
+  }).join('');
+}
+
 function pagina(x) {
   const { s, u, st, v, falliti } = x;
   const h = host(s.check || s.url);
   let spiega;
-  if (st.k === 'giu') spiega = `${esc(h)} non risponde da più verifiche di fila (ultima alle ${oraIt(u.t)}).`;
+  if (st.sp) spiega = esc(st.sp);
+  else if (st.k === 'giu') spiega = `${esc(h)} non risponde da più verifiche di fila (ultima alle ${oraIt(u.t)}).`;
   else if (st.k === 'dubbio') spiega = `L'ultima verifica di ${esc(h)} alle ${oraIt(u.t)} non ha avuto risposta. Ricontrolliamo tra 5 minuti.`;
   else if ((st.k === 'problemi' || st.k === 'parziale') && x.uff && x.uff.livello !== 'ok') spiega = `Il servizio stesso segnala un disservizio: «${esc(x.uff.testo)}». Ultima nostra verifica alle ${oraIt(u.t)}.`;
   else if (st.k === 'problemi' || st.k === 'parziale' || (st.k === 'manut' && u.sc)) spiega = `${esc(st.t)} da almeno due verifiche di fila (ultima alle ${oraIt(u.t)}). I dettagli sono nella tabella «Server controllati» qui sotto.`;
@@ -354,12 +476,12 @@ function pagina(x) {
   <div class="big">
     <div class="big-top">${pill(st)}<span class="muted small">verificato alle ${oraIt(u.t)}</span></div>
     <p>${spiega}</p>
-    <p class="muted small">Cosa controlliamo: ${esc(s.cosa || 'la pagina principale del servizio')}${s.ufficiale ? ', e gli avvisi pubblicati dal servizio stesso' : ''}.</p>
+    <p class="muted small">Cosa controlliamo: ${esc(s.cosa || 'la pagina principale del servizio')}, seguendo i rimandi fino alla pagina vera${s.posta ? ', i server di posta in entrata e in uscita' : ''}${s.ufficiale ? ', e gli avvisi pubblicati dal servizio stesso' : ''}.</p>
     ${x.uff ? `<div class="ufficiale ${x.uff.livello}"><strong>Stato ufficiale del servizio</strong><p>${esc(x.uff.testo)} · <a href="${x.uff.link}" rel="nofollow noopener">pagina di stato</a></p></div>` : ''}
   </div>
   <h2>Server controllati</h2>
-  <p class="muted small">Per ogni server del servizio: se il nome si risolve (DNS), quanti indirizzi IP rispondono sulla porta 443, il tempo di connessione e il certificato di sicurezza.</p>
-  <div class="tab"><table class="srv"><thead><tr><th>Server</th><th>Indirizzi IP</th><th>Connessione</th><th>Certificato</th></tr></thead><tbody>${righeServer(x.srv, u.ok ? hostDi({ url: s.check || s.url })[0] : null)}</tbody></table></div>
+  <p class="muted small">Per ogni server del servizio: se il nome si risolve (DNS), quanti indirizzi IP rispondono sulla porta 443, il tempo di connessione e il certificato di sicurezza.${s.posta ? ' Per i server di posta: se rispondono al saluto IMAP o SMTP.' : ''}</p>
+  <div class="tab"><table class="srv"><thead><tr><th>Server</th><th>Indirizzi IP</th><th>Connessione</th><th>Certificato</th></tr></thead><tbody>${righeServer(x.srv, u.ok ? hostDi({ url: s.check || s.url })[0] : null)}${righePosta(x.posta)}</tbody></table></div>
   <h2>Tempo di risposta${parziale ? ` dalle ${oraIt(x.inizio)}` : ', ultime 24 ore'}</h2>
   <div class="chart"><div class="chart-top muted small">Una verifica ogni 5 minuti · massimo ${sec(Math.max(...x.vg))}${parziale ? ' · lo storico si completa in 24 ore' : ''} · le verifiche fallite salgono a 10 s</div>${linea(x.vg, tono(st.k), 720, 180, 3000)}<div class="axis">${etich}</div></div>
   <h2>Verifiche non riuscite, ultime 24 ore</h2>
