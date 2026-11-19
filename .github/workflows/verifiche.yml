@@ -22,6 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: DNS pubblici al posto di quello del data center di GitHub
+        continue-on-error: true
+        run: |
+          sudo mkdir -p /etc/systemd/resolved.conf.d
+          printf '[Resolve]\nDNS=1.1.1.1 8.8.8.8 9.9.9.9\nDomains=~.\n' | sudo tee /etc/systemd/resolved.conf.d/pubblici.conf
+          sudo systemctl restart systemd-resolved
+          resolvectl status | head -20
+          getent hosts www.bancamediolanum.it || echo "nome non risolto"
       - name: Verifiche ogni 5 minuti per quasi 6 ore
         env:
           SITO: https://stato-servizi.pages.dev
